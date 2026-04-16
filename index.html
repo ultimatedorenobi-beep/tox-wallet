@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TOX Wallet</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+body {
+    background: linear-gradient(135deg, #0d1117, #02060d);
+    color: white;
+    font-family: 'Segoe UI', Arial;
+    text-align: center;
+}
+
+.container {
+    width: 420px;
+    margin: auto;
+    padding-top: 30px;
+}
+
+.card {
+    background: rgba(22, 27, 34, 0.7);
+    backdrop-filter: blur(10px);
+    padding: 20px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 0 20px rgba(0,255,204,0.1);
+    transition: 0.3s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0 30px rgba(0,255,204,0.3);
+}
+
+h1 {
+    color: #00ffcc;
+}
+
+button {
+    background: linear-gradient(45deg, #00ffcc, #00ccaa);
+    border: none;
+    padding: 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    margin-top: 10px;
+    color: black;
+    font-weight: bold;
+}
+
+input {
+    width: 90%;
+    padding: 10px;
+    margin: 5px;
+    border-radius: 8px;
+    border: none;
+    background: #0d1117;
+    color: white;
+}
+
+#txStatus {
+    margin-top: 10px;
+    font-weight: bold;
+}
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+<div id="loader" style="display:none;">⏳ Processing...</div>
+
+    <!-- HEADER -->
+    <div class="card">
+        <img src="logo/tox_logo.png" width="180">
+        <h1>TOX Wallet</h1>
+        <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+        <p id="walletAddress"></p>
+    </div>
+
+    <!-- BALANCE -->
+<div class="card">
+    <h2>Balance</h2>
+    <p id="balance">0 TOX</p>
+
+    <p class="small">Contract Address:</p>
+    <p id="contract" class="small">
+        0xdcCCe362A6C5Accb07714Cac21b9040ff274411C
+    </p>
+
+    <button onclick="copyContract()">Copy Contract</button>
+</div>
+
+    <!-- SEND -->
+    <div class="card">
+        <h2>Send TOX</h2>
+        <input id="to" placeholder="Receiver Address">
+        <input id="amount" placeholder="Amount">
+        <button onclick="sendTOX()">Send</button>
+        <p id="txStatus" class="small"></p>
+    </div>
+
+    <!-- RECEIVE -->
+<div class="card">
+    <h2>Receive</h2>
+    <div id="qrcode"></div>
+    <button onclick="copyMyAddress()">Copy My Address</button>
+</div>
+
+    <!-- ACTIVITY -->
+    <div class="card">
+        <h2>Activity</h2>
+        <div id="activity"></div>
+    </div>
+
+</div>
+
+<script>
+let provider, signer, contract, userAddress;
+
+const contractAddress = "0xdcCCe362A6C5Accb07714Cac21b9040ff274411C";
+
+const abi = [
+    "function balanceOf(address owner) view returns (uint256)",
+    "function transfer(address to, uint amount) returns (bool)"
+];
+
+// CONNECT
+async function connectWallet() {
+    if (window.ethereum) {
+        try {
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+            provider = new ethers.providers.Web3Provider(window.ethereum);
+            signer = provider.getSigner();
+            userAddress = await signer.getAddress();
+
+            document.getElementById("walletAddress").innerText = userAddress;
+            document.getElementById("connectBtn").innerText = "Wallet Connected ✅";
+            document.getElementById("connectBtn").disabled = true;
+
+            contract = new ethers.Contract(contractAddress, abi, signer);
+
+            loadBalance();
+            loadHistory();
+
+            document.getElementById("qrcode").innerHTML = "";
+            new QRCode(document.getElementById("qrcode"), userAddress);
+
+        } catch (err) {
+            alert("Connection failed");
+        }
+    } else {
+        alert("Install MetaMask or another wallet");
+    }
+}
+
+// LOAD BALANCE
+async function loadBalance() {
+    let bal = await contract.balanceOf(userAddress);
+    let formatted = ethers.utils.formatUnits(bal, 18);
+    document.getElementById("balance").innerText = formatted + " TOX";
+}
+
+// SEND
+async function sendTOX() {
+    let to = document.getElementById("to").value;
+    let amount = document.getElementById("amount").value;
+    if (!ethers.utils.isAddress(to)) {
+    alert("Invalid address ❌");
+    return;
+}
+
+if (amount <= 0) {
+    alert("Enter valid amount ❌");
+    return;
+}
+
+    if (!to || !amount) {
+        alert("Enter address and amount");
+        return;
+    }
+
+    try {
+        document.getElementById("txStatus").innerText = "⏳ Transaction Pending...";
+        document.getElementById("loader").style.display = "block";
+
+        let tx = await contract.transfer(
+            to,
+            ethers.utils.parseUnits(amount, 18)
+        );
+
+        addActivity("⏳ Sending " + amount + " TOX...");
+
+        await tx.wait();
+        document.getElementById("loader").style.display = "none";
+
+        let txHash = tx.hash;
+
+        document.getElementById("txStatus").innerHTML =
+       `✅ Success! <br>
+        <a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank">
+        View Transaction 🔗</a>`;
+        addActivity("✅ Sent " + amount + " TOX");
+
+        loadBalance();
+
+    } catch (err) {
+        document.getElementById("txStatus").innerText = "❌ Transaction Failed";
+        addActivity("❌ Failed transaction");
+        document.getElementById("loader").style.display = "none";
+    }
+}
+
+// RECEIVE
+function copyMyAddress() {
+    navigator.clipboard.writeText(userAddress);
+    alert("Address copied");
+}
+
+// ACTIVITY
+function addActivity(text) {
+    let div = document.getElementById("activity");
+    let p = document.createElement("p");
+    p.innerText = text;
+    div.prepend(p);
+}
+
+async function loadHistory() {
+    let url = `https://api-sepolia.etherscan.io/api?module=account&action=tokentx&contractaddress=${contractAddress}&address=${userAddress}&sort=desc`;
+
+    let res = await fetch(url);
+    let data = await res.json();
+
+    let div = document.getElementById("activity");
+    div.innerHTML = "";
+
+    data.result.slice(0,5).forEach(tx => {
+        let p = document.createElement("p");
+        p.innerText = "TX: " + tx.hash.slice(0,10) + "...";
+        div.appendChild(p);
+    });
+}
+
+function copyContract() {
+    const text = document.getElementById("contract").innerText;
+    navigator.clipboard.writeText(text);
+    alert("Contract copied ✅");
+}
+</script>
+
+</body>
+</html>
